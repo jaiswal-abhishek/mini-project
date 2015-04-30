@@ -1,0 +1,14 @@
+Scrapy==0.24.6
+Twisted==15.1.0
+argparse==1.2.1
+beautifulsoup4==4.3.2
+cssselect==0.9.1
+lxml==3.4.4
+pyOpenSSL==0.15.1
+queuelib==1.2.2
+requests==2.6.2
+simplejson==3.6.5
+six==1.9.0
+w3lib==1.11.0
+wsgiref==0.1.2
+zope.interface==4.1.2

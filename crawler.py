@@ -1,8 +1,11 @@
-from bs4 import BeautifulSoup
-import requests
 import argparse
 from datetime import datetime
 import sys
+import mailbox
+import urllib
+import os
+import shutil
+import glob
 
 
 class Crawler:
@@ -18,17 +21,65 @@ class Crawler:
         pass
 
     url = 'http://mail-archives.apache.org/mod_mbox/maven-users/'
+    prefix_folder = 'mailbox/'
 
-    def start_crawl(self, year):
+    def mailbox_folder_processing(self, year, folder, force):
+        """
+        Function
+
+        :param year:
+        :param folder:
+        :param force:
+        :return:
+        """
+
+        if not folder:
+            folder = str(year)
+
+        if os.path.exists(self.prefix_folder + folder):
+
+            if force:
+                # print 'force creation'
+                shutil.rmtree(self.prefix_folder + folder)
+                os.makedirs(self.prefix_folder + folder)
+                self.download_mailbox_file(year, 1, self.prefix_folder + folder)
+
+            else:
+                # print 'folder exists'
+                last_file = max(glob.iglob(self.prefix_folder + folder + '/*'), key=os.path.getctime)
+                file_name = os.path.splitext(os.path.basename(last_file))[0]
+                self.download_mailbox_file(year, int(file_name[-2:]), self.prefix_folder + folder)
+
+        else:
+            os.makedirs(self.prefix_folder + folder)
+            self.download_mailbox_file(year, 1, self.prefix_folder + folder)
+            # print 'folder created'
+
+    def download_mailbox_file(self, year, month, folder):
         """
 
         :param year:
         :return:
         """
 
-        month = 12
-        curr_year = datetime.now().year
+        for year_month in self.generate_year_month(year, month):
+            new_generated_url = self.url + str(year_month) + '.mbox'
+            print new_generated_url
 
+            save_as = folder + '/' + str(year_month) + '.mbox'
+
+            mail_file = urllib.URLopener()
+            mail_file.retrieve(new_generated_url, save_as)
+
+    def generate_year_month(self, year, month=1):
+        """
+
+        :param year:
+        :param month:
+        :return:
+        """
+
+        curr_year = datetime.now().year
 
         if year > curr_year:
             print 'future date given'
@@ -37,50 +88,22 @@ class Crawler:
         elif year == curr_year:
             month = datetime.now().month
 
-        for i in xrange(1, month + 1):
-            new_generated_url = self.url + str(year) + "%02d" % i + '.mbox/'
-
-            # current page init at 0
-            thread = 0
-
-            # assume it has to be minimum 1 page
-            total_page = 1
-
-
-            while thread < total_page:
-                # generating link to fetch list of messages for the month
-                link_to_fetch = new_generated_url + 'ajax/thread?' + str(thread)
-
-                #print link_to_fetch
-
-                response = requests.get(link_to_fetch)
-
-                soup = BeautifulSoup(response.text, 'xml')
-
-                # from the root index of xml fetching total no of pages ans assigning to total page
-                index = soup.find_all('index')
-                total_page = int(index[0]['pages'])
-
-                all_messages = soup.find_all('message')
-                for msg_tag in all_messages:
-                    msg_id = msg_tag['id']
-                    message = requests.get(new_generated_url + 'ajax/' + msg_id) .text
-
-                    # print message
-
-                # incrementing thread
-                thread += 1
-
-
-
+        while month <= 12:
+            yield str(year) + "%02d" % month
+            month += 1
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="mini crawler project .")
     parser.add_argument('-y', '--year', type=int, required=True)
+    parser.add_argument('-d', '--folder', type=str)
+    parser.add_argument('-f', '--force', const=1, nargs='?')
 
     args = parser.parse_args()
     # print args
 
     crawler = Crawler()
 
-    crawler.start_crawl(args.year)
+    # check folder exists
+    crawler.mailbox_folder_processing(args.year, args.folder, args.force)
+
+    os.system('nautilus mailbox/')

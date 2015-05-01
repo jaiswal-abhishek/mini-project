@@ -29,6 +29,7 @@ class Crawler:
         month = 12
         curr_year = datetime.now().year
 
+
         if year > curr_year:
             print 'future date given'
             sys.exit(0)
@@ -39,25 +40,38 @@ class Crawler:
         for i in xrange(1, month + 1):
             new_generated_url = self.url + str(year) + "%02d" % i + '.mbox/'
 
-           # while page:
+            # current page init at 0
+            thread = 0
 
-            link_to_fetch = new_generated_url + 'ajax/thread'
-
-            print link_to_fetch
-
-            response = requests.get(link_to_fetch)
-
-            soup = BeautifulSoup(response.text, 'xml')
-            index = soup.find_all('index')
-            total_page = index[0]['pages']
+            # assume it has to be minimum 1 page
+            total_page = 1
 
 
-            all_messages = soup.find_all('message')
-            for msg_tag in all_messages:
-                msg_id = msg_tag['id']
-                message = requests.get(new_generated_url + 'ajax/' + msg_id) .text
+            while thread < total_page:
+                # generating link to fetch list of messages for the month
+                link_to_fetch = new_generated_url + 'ajax/thread?' + str(thread)
 
-                print message
+                #print link_to_fetch
+
+                response = requests.get(link_to_fetch)
+
+                soup = BeautifulSoup(response.text, 'xml')
+
+                # from the root index of xml fetching total no of pages ans assigning to total page
+                index = soup.find_all('index')
+                total_page = int(index[0]['pages'])
+
+                all_messages = soup.find_all('message')
+                for msg_tag in all_messages:
+                    msg_id = msg_tag['id']
+                    message = requests.get(new_generated_url + 'ajax/' + msg_id) .text
+
+                    # print message
+
+                # incrementing thread
+                thread += 1
+
+
 
 
 if __name__ == '__main__':

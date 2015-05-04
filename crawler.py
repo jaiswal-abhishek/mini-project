@@ -1,109 +1,85 @@
-import argparse
-from datetime import datetime
+from bs4 import BeautifulSoup
+import requests
+import re
+import urlparse
 import sys
-import mailbox
-import urllib
-import os
-import shutil
-import glob
 
 
-class Crawler:
-    """
-    Main class
+def crawler(url, year):
     """
 
-    def __init__(self):
-        """
+    :param url:
+    :param year:
+    :return:
+    """
 
-        :return:
-        """
-        pass
+    response = requests.get(url)
+    pattern = re.compile(r'%s' % year)
+    hostname = 'http://' + urlparse.urlparse(url).hostname
 
-    url = 'http://mail-archives.apache.org/mod_mbox/maven-users/'
-    prefix_folder = 'mailbox/'
+    soup = BeautifulSoup(response.text)
 
-    def mailbox_folder_processing(self, year, folder, force):
-        """
-        Function
+    tables = soup.find('th', text=pattern)
 
-        :param year:
-        :param folder:
-        :param force:
-        :return:
-        """
+    if not tables:
+        print 'given year "{}" not found'.format(year)
 
-        if not folder:
-            folder = str(year)
+    else:
+        for table in tables:
+            # print table.parent.parent.parent.parent
+            table_by_year = table.findParents('table', {'class': 'year'})
 
-        if os.path.exists(self.prefix_folder + folder):
+            for a_tags in table_by_year[0].find_all('a', href=True, text='Thread'):
+                # print "Found the URL:", a_tags['href']
 
-            if force:
-                # print 'force creation'
-                shutil.rmtree(self.prefix_folder + folder)
-                os.makedirs(self.prefix_folder + folder)
-                self.download_mailbox_file(year, 1, self.prefix_folder + folder)
+                # getting the year_url for fetching message as
+                list_url_chunks = a_tags['href'].split('/')
+                year_url = url + list_url_chunks[0]
+                bool_next = True
+                counter = 0
+                fetch_url = url + a_tags['href']
 
-            else:
-                # print 'folder exists'
-                last_file = max(glob.iglob(self.prefix_folder + folder + '/*'), key=os.path.getctime)
-                file_name = os.path.splitext(os.path.basename(last_file))[0]
-                self.download_mailbox_file(year, int(file_name[-2:]), self.prefix_folder + folder)
+                while bool_next:
 
-        else:
-            os.makedirs(self.prefix_folder + folder)
-            self.download_mailbox_file(year, 1, self.prefix_folder + folder)
-            # print 'folder created'
+                    print fetch_url
 
-    def download_mailbox_file(self, year, month, folder):
-        """
+                    tag_response = requests.get(fetch_url)
+                    tag_soup = BeautifulSoup(tag_response.text)
+                    msg_list_table = tag_soup.find(id='msglist')
 
-        :param year:
-        :return:
-        """
+                    #messages
+                    msg_table_rows = msg_list_table.findAll('tr')
+                    for table_row in msg_table_rows:
+                        counter += 1
 
-        for year_month in self.generate_year_month(year, month):
-            new_generated_url = self.url + str(year_month) + '.mbox'
-            print new_generated_url
+                        author = table_row.find('td', {'class': 'author'})
+                        subject = table_row.find('a', href=True)
+                        date = table_row.find('td', {'class': 'date'})
 
-            save_as = folder + '/' + str(year_month) + '.mbox'
+                        if author:
+                            print author.renderContents()
 
-            mail_file = urllib.URLopener()
-            mail_file.retrieve(new_generated_url, save_as)
+                        if subject:
+                            print subject.renderContents()
+                            print subject['href']
 
-    def generate_year_month(self, year, month=1):
-        """
+                        if date:
+                            print date.renderContents()
+                        print '--------------------------------'
+                        """cols = table_row.findAll('td')
+                        for td in cols:
+                            # print td.renderContents().strip()
+                            td.find('')"""
 
-        :param year:
-        :param month:
-        :return:
-        """
+                    th_pages = msg_list_table.find('th', {'class': 'pages'})
+                    next_page = th_pages.find('a', href=True, text=re.compile(r'Next'))
+                    if next_page:
+                        fetch_url = hostname + next_page['href']
 
-        curr_year = datetime.now().year
+                    else:
+                        bool_next = False
 
-        if year > curr_year:
-            print 'future date given'
-            sys.exit(0)
+                print "total message" + str(counter)
 
-        elif year == curr_year:
-            month = datetime.now().month
 
-        while month <= 12:
-            yield str(year) + "%02d" % month
-            month += 1
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="mini crawler project .")
-    parser.add_argument('-y', '--year', type=int, required=True)
-    parser.add_argument('-d', '--folder', type=str)
-    parser.add_argument('-f', '--force', const=1, nargs='?')
-
-    args = parser.parse_args()
-    # print args
-
-    crawler = Crawler()
-
-    # check folder exists
-    crawler.mailbox_folder_processing(args.year, args.folder, args.force)
-
-    os.system('nautilus mailbox/')
+crawler('http://mail-archives.apache.org/mod_mbox/maven-users/', 2014)

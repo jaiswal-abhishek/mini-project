@@ -21,7 +21,5 @@ class CrawlerTest(unittest.TestCase):
         # deleting folder
         shutil.rmtree('mailbox/2014/')
 
-
-
 if __name__ == '__main__':
     unittest.main()

@@ -11,7 +11,8 @@ import json
 
 class Crawler():
     """
-    main crawler class which parse "http://mail-archives.apache.org/mod_mbox/maven-users/"
+    main crawler class which parse
+    "http://mail-archives.apache.org/mod_mbox/maven-users/"
     link and download all mails  for given year
     """
 
@@ -59,7 +60,9 @@ class Crawler():
                 # print table.parent.parent.parent.parent
                 table_by_year = table.findParents('table', {'class': 'year'})
 
-                for a_tags in table_by_year[0].find_all('a', href=True, text='Thread'):
+                for a_tags in table_by_year[0].\
+                        find_all('a', href=True, text='Thread'):
+
                     # print "Found the URL:", a_tags['href']
                     year_month_url = self.maven_url + a_tags['href']
                     self.parse_year_month_link(year_month_url)
@@ -100,7 +103,8 @@ class Crawler():
 
                 if subject:
                     # print raw_msg_url + subject['href'] + '/'
-                    self.parse_raw_msg(raw_msg_url + subject['href'] + '/', msg_year_month)
+                    self.parse_raw_msg(raw_msg_url +
+                                       subject['href'] + '/', msg_year_month)
 
             th_pages = msg_list_table.find('th', {'class': 'pages'})
             next_page = th_pages.find('a', href=True, text=re.compile(r'Next'))
@@ -127,9 +131,11 @@ class Crawler():
         if mail_response.status_code == 200:
             # print mail_response.text
             # writing files
-            filename_path = self.folder + msg_year_month + '-' + str(self.counter) + self.file_ext
+            filename_path = self.folder + msg_year_month + '-' + \
+                            str(self.counter) + self.file_ext
 
-            if self.write_file(filename_path, mail_response.text.encode('utf-8')):
+            if self.write_file(filename_path,
+                               mail_response.text.encode('utf-8')):
                 self.counter += 1
 
     def process_folder(self, folder):

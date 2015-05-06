@@ -5,17 +5,24 @@ import re
 import urlparse
 import argparse
 import sys
-import traceback
 import os
 import json
 
 
 class Crawler():
     """
-
+    main crawler class which parse "http://mail-archives.apache.org/mod_mbox/maven-users/"
+    link and download all mails  for given year
     """
 
     def __init__(self, main_url, year, folder):
+        """
+        Constructor to initialize the required values
+        :param main_url: string
+        :param year: string year for which mail will download
+        :param folder: folder name in which mails will be stored
+        :return:
+        """
 
         self.maven_url = main_url
         self.year = year
@@ -25,14 +32,19 @@ class Crawler():
 
     def parse_main_page(self):
         """
+        :return:
         """
 
         try:
             response = requests.get(self.maven_url, timeout=5)
         except requests.exceptions.RequestException as e:
-            # print e
+            print e
             # print 'write meta'
+            data = {
+                'maven_url': self.maven_url,
+            }
             sys.exit(1)
+
         pattern = re.compile(r'%s' % self.year)
 
         soup = BeautifulSoup(response.text)
@@ -54,6 +66,8 @@ class Crawler():
 
     def parse_year_month_link(self, year_month_url):
         """
+        :param year_month_url:
+        :return:
         """
 
         bool_next = True
@@ -98,6 +112,9 @@ class Crawler():
 
     def parse_raw_msg(self, url, msg_year_month):
         """
+        :param url:
+        :param msg_year_month:
+        :return:
         """
 
         try:
@@ -117,10 +134,8 @@ class Crawler():
 
     def process_folder(self, folder):
         """
-
-        :param year:
         :param folder:
-        :return: string folder path
+        :return:
         """
 
         prefix_folder = 'mailbox/'
@@ -139,6 +154,9 @@ class Crawler():
 
     def write_file(self, filename, data):
         """
+        :param filename:
+        :param data:
+        :return:
         """
 
         new_file = open(filename, 'w')   # creating a new file

@@ -1,17 +1,20 @@
 import unittest
 import shutil
-import crawler
+from crawler import Crawler
 
 
 class CrawlerTest(unittest.TestCase):
 
     def test_creating_folder(self):
-        result = crawler.process_folder(2014, '2014')
-        self.assertEqual('mailbox/2014/', result)
+        maven_url = 'http://mail-archives.apache.org/mod_mbox/maven-users/'
+        crawler = Crawler(maven_url, '2014', None)
+        self.assertEqual('mailbox/2014/', crawler.folder)
 
     def test_folder_exists_error(self):
+        maven_url = 'http://mail-archives.apache.org/mod_mbox/maven-users/'
+
         with self.assertRaises(SystemExit) as cm:
-            crawler.process_folder(2014, '2014')
+            crawler = Crawler(maven_url, '2014', None)
 
         self.assertEqual(cm.exception.code, 0)
 

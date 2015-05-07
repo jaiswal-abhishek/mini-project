@@ -29,12 +29,14 @@ class Crawler():
         self.year = year
         self.file_ext = '.txt'
         self.counter = 0
-        self.url_to_parse = set()
-        self.folder = self.process_folder(folder)
-
+        self.url_to_parse = list()
+        self.list_year_month_url = list()
+        self.folder = 'mailbox/'
         self.meta_file_name = self.folder + 'meta.txt'
+        self.process_folder(folder)
+
         list_url = self.parse_main_page()
-        msg_year_month = self.parse_year_month_link(list_url)
+        msg_year_month = self.parse_year_month_link()
         self.parse_raw_msg()
 
     def parse_main_page(self):
@@ -51,10 +53,11 @@ class Crawler():
             data = {
                 'resume_function': 'parse_main_page',
                 'maven_url': self.maven_url,
-                'args': {},
                 'counter': self.counter,
                 'status': 'incomplete',
+                'list_year_month_url': self.list_year_month_url,
                 'url_to_parse': self.url_to_parse,
+
             }
 
             self.write_file(self.meta_file_name, json.dumps(data))
@@ -75,24 +78,25 @@ class Crawler():
             for table in tables:
                 # print table.parent.parent.parent.parent
                 table_by_year = table.findParents('table', {'class': 'year'})
-                list_year_month_url = set()
+                list_year_month_url = list()
 
                 for a_tags in table_by_year[0].\
                         find_all('a', href=True, text='Thread'):
 
-                    # print "Found the URL:", a_tags['href']
-                    list_year_month_url.add(self.maven_url + a_tags['href'])
+                    # print "Found the URL:",self.maven_url + a_tags['href']
+                    self.list_year_month_url.append(self.maven_url +
+                                                    a_tags['href'])
 
-                return list_year_month_url
+                return self.list_year_month_url
 
-    def parse_year_month_link(self, list_year_month_url):
+    def parse_year_month_link(self):
         """
         :param list_year_month_url:
         :return: list of tuple containing (url for raw msgs, year_month)
         """
 
-        while len(list_year_month_url):
-            year_month_url = list_year_month_url.pop()
+        while len(self.list_year_month_url):
+            year_month_url = self.list_year_month_url.pop()
 
             bool_next = True
             hostname = 'http://' + urlparse.urlparse(self.maven_url).hostname
@@ -100,7 +104,6 @@ class Crawler():
             sliced_url = year_month_url.rsplit('/', 1)
             raw_msg_url = sliced_url[0] + '/raw/'
             msg_year_month = sliced_url[0][-11:-5]
-            self.counter = 0
 
             while bool_next:
                 # print year_month_url
@@ -111,14 +114,12 @@ class Crawler():
 
                     # writing meta file for resuming from last run
                     data = {
-                        'resume_function': 'parse_year_month_link',
+                        'resume_function': 'parse_main_page',
                         'maven_url': self.maven_url,
-                        'args': {
-                            'list_year_month_url': list(list_year_month_url),
-                        },
                         'counter': self.counter,
                         'status': 'incomplete',
-                        'url_to_parse': list(self.url_to_parse),
+                        'list_year_month_url': self.list_year_month_url,
+                        'url_to_parse': self.url_to_parse,
                     }
 
                     self.write_file(self.meta_file_name, json.dumps(data))
@@ -139,8 +140,10 @@ class Crawler():
 
                     if subject:
                         # print raw_msg_url + subject['href'] + '/'
-                        self.url_to_parse.add((raw_msg_url + subject['href'] +
-                                               '/', msg_year_month))
+                        self.url_to_parse.append({
+                            'msg_url': raw_msg_url + subject['href'] + '/',
+                            'msg_year_month': msg_year_month,
+                        })
 
                 th_pages = msg_list_table.find('th', {'class': 'pages'})
                 next_page = th_pages.find('a', href=True,
@@ -154,14 +157,17 @@ class Crawler():
 
         return self.url_to_parse
 
-    def parse_raw_msg(self, list_url_parse):
+    def parse_raw_msg(self):
         """
         :return: True on completion
         """
 
         # for url, msg_year_month in list_raw_msg_url:
         while len(self.url_to_parse):
-            url, msg_year_month = self.url_to_parse.pop()
+            popped_dict = self.url_to_parse.pop()
+            url = popped_dict['msg_url']
+            msg_year_month = popped_dict['msg_year_month']
+            print url, msg_year_month
 
             try:
                 mail_response = requests.get(url, timeout=5)
@@ -170,12 +176,12 @@ class Crawler():
 
                 # writing meta file for resuming from last run
                 data = {
-                    'resume_function': 'parse_raw_msg',
+                    'resume_function': 'parse_year_month_link',
                     'maven_url': self.maven_url,
-                    'args': {},
                     'counter': self.counter,
                     'status': 'incomplete',
-                    'url_to_parse': list(self.url_to_parse),
+                    'list_year_month_url': self.list_year_month_url,
+                    'url_to_parse': self.url_to_parse,
                 }
 
                 self.write_file(self.meta_file_name, json.dumps(data))
@@ -213,15 +219,23 @@ class Crawler():
         if os.path.exists(prefix_folder + folder):
             print 'resuming....'
             self.folder = prefix_folder + folder + '/'
-            # getattr(obj, 'func')('foo', 'bar', 42)
             data = self.read_meta_file(self.meta_file_name)
 
             if data['status'] != 'completed':
 
                 self.counter = data['counter']
                 self.url_to_parse = data['url_to_parse']
-                getattr(self, data['resume_function'])(','.join(
-                    data['args'].values()))
+                self.list_year_month_url = data['list_year_month_url']
+
+                if data['resume_function'] == 'parse_year_month_link':
+                    self.parse_year_month_link()
+
+                elif data['resume_function'] == 'parse_raw_msg':
+                    self.parse_raw_msg()
+
+                else:
+                    print 'wrong meta file found'
+                    sys.exit(0)
 
             else:
                 print 'completed'
@@ -230,7 +244,7 @@ class Crawler():
         else:
             os.makedirs(prefix_folder + folder)
 
-            return prefix_folder + folder + '/'
+            self.folder = prefix_folder + folder + '/'
 
     def write_file(self, filename, data):
         """

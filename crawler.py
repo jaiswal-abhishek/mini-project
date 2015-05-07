@@ -27,24 +27,39 @@ class Crawler():
 
         self.maven_url = main_url
         self.year = year
-        self.folder = self.process_folder(folder)
         self.file_ext = '.txt'
         self.counter = 0
+        self.url_to_parse = set()
+        self.folder = self.process_folder(folder)
+
+        self.meta_file_name = self.folder + 'meta.txt'
+        list_url = self.parse_main_page()
+        msg_year_month = self.parse_year_month_link(list_url)
+        self.parse_raw_msg()
 
     def parse_main_page(self):
         """
-        :return:
+        :return: list containing month mail url's
         """
 
         try:
             response = requests.get(self.maven_url, timeout=5)
         except requests.exceptions.RequestException as e:
             print e
-            # print 'write meta'
+
+            # writing meta file for resuming from last run
             data = {
+                'resume_function': 'parse_main_page',
                 'maven_url': self.maven_url,
+                'args': {},
+                'counter': self.counter,
+                'status': 'incomplete',
+                'url_to_parse': self.url_to_parse,
             }
-            sys.exit(1)
+
+            self.write_file(self.meta_file_name, json.dumps(data))
+
+            sys.exit(0)
 
         pattern = re.compile(r'%s' % self.year)
 
@@ -54,89 +69,133 @@ class Crawler():
 
         if not tables:
             print 'given year "{}" not found'.format(self.year)
+            sys.exit(0)
 
         else:
             for table in tables:
                 # print table.parent.parent.parent.parent
                 table_by_year = table.findParents('table', {'class': 'year'})
+                list_year_month_url = set()
 
                 for a_tags in table_by_year[0].\
                         find_all('a', href=True, text='Thread'):
 
                     # print "Found the URL:", a_tags['href']
-                    year_month_url = self.maven_url + a_tags['href']
-                    self.parse_year_month_link(year_month_url)
+                    list_year_month_url.add(self.maven_url + a_tags['href'])
 
-    def parse_year_month_link(self, year_month_url):
+                return list_year_month_url
+
+    def parse_year_month_link(self, list_year_month_url):
         """
-        :param year_month_url:
-        :return:
+        :param list_year_month_url:
+        :return: list of tuple containing (url for raw msgs, year_month)
         """
 
-        bool_next = True
-        hostname = 'http://' + urlparse.urlparse(self.maven_url).hostname
+        while len(list_year_month_url):
+            year_month_url = list_year_month_url.pop()
 
-        sliced_url = year_month_url.rsplit('/', 1)
-        raw_msg_url = sliced_url[0] + '/raw/'
-        msg_year_month = sliced_url[0][-11:-5]
-        self.counter = 0
+            bool_next = True
+            hostname = 'http://' + urlparse.urlparse(self.maven_url).hostname
 
-        while bool_next:
-            print year_month_url
+            sliced_url = year_month_url.rsplit('/', 1)
+            raw_msg_url = sliced_url[0] + '/raw/'
+            msg_year_month = sliced_url[0][-11:-5]
+            self.counter = 0
+
+            while bool_next:
+                # print year_month_url
+                try:
+                    tag_response = requests.get(year_month_url, timeout=5)
+                except requests.exceptions.RequestException as e:
+                    print e
+
+                    # writing meta file for resuming from last run
+                    data = {
+                        'resume_function': 'parse_year_month_link',
+                        'maven_url': self.maven_url,
+                        'args': {
+                            'list_year_month_url': list(list_year_month_url),
+                        },
+                        'counter': self.counter,
+                        'status': 'incomplete',
+                        'url_to_parse': list(self.url_to_parse),
+                    }
+
+                    self.write_file(self.meta_file_name, json.dumps(data))
+
+                    sys.exit(0)
+
+                tag_soup = BeautifulSoup(tag_response.text)
+                msg_list_table = tag_soup.find(id='msglist')
+
+                # messages
+                msg_table_rows = msg_list_table.findAll('tr')
+
+                for table_row in msg_table_rows:
+
+                    # author = table_row.find('td', {'class': 'author'})
+                    subject = table_row.find('a', href=True)
+                    # mail_date = table_row.find('td', {'class': 'date'})
+
+                    if subject:
+                        # print raw_msg_url + subject['href'] + '/'
+                        self.url_to_parse.add((raw_msg_url + subject['href'] +
+                                               '/', msg_year_month))
+
+                th_pages = msg_list_table.find('th', {'class': 'pages'})
+                next_page = th_pages.find('a', href=True,
+                                          text=re.compile(r'Next'))
+
+                if next_page:
+                    year_month_url = hostname + next_page['href']
+
+                else:
+                    bool_next = False
+
+        return self.url_to_parse
+
+    def parse_raw_msg(self, list_url_parse):
+        """
+        :return: True on completion
+        """
+
+        # for url, msg_year_month in list_raw_msg_url:
+        while len(self.url_to_parse):
+            url, msg_year_month = self.url_to_parse.pop()
+
             try:
-                tag_response = requests.get(year_month_url, timeout=5)
+                mail_response = requests.get(url, timeout=5)
             except requests.exceptions.RequestException as e:
                 print e
-                # print 'write meta'
-                sys.exit(1)
 
-            tag_soup = BeautifulSoup(tag_response.text)
-            msg_list_table = tag_soup.find(id='msglist')
+                # writing meta file for resuming from last run
+                data = {
+                    'resume_function': 'parse_raw_msg',
+                    'maven_url': self.maven_url,
+                    'args': {},
+                    'counter': self.counter,
+                    'status': 'incomplete',
+                    'url_to_parse': list(self.url_to_parse),
+                }
 
-            # messages
-            msg_table_rows = msg_list_table.findAll('tr')
-            for table_row in msg_table_rows:
+                self.write_file(self.meta_file_name, json.dumps(data))
 
-                # author = table_row.find('td', {'class': 'author'})
-                subject = table_row.find('a', href=True)
-                # mail_date = table_row.find('td', {'class': 'date'})
+                sys.exit(0)
 
-                if subject:
-                    # print raw_msg_url + subject['href'] + '/'
-                    self.parse_raw_msg(raw_msg_url +
-                                       subject['href'] + '/', msg_year_month)
+            if mail_response.status_code == 200:
+                # print mail_response.text
+                # writing files
+                filename_path = self.folder + msg_year_month + '-' + \
+                                str(self.counter) + self.file_ext
 
-            th_pages = msg_list_table.find('th', {'class': 'pages'})
-            next_page = th_pages.find('a', href=True, text=re.compile(r'Next'))
-            if next_page:
-                year_month_url = hostname + next_page['href']
+                if self.write_file(filename_path,
+                                   mail_response.text.encode('utf-8')):
+                    self.counter += 1
 
-            else:
-                bool_next = False
+        data = {'status': 'completed'}
+        self.write_file(self.meta_file_name, json.dumps(data))
 
-    def parse_raw_msg(self, url, msg_year_month):
-        """
-        :param url:
-        :param msg_year_month:
-        :return:
-        """
-
-        try:
-            mail_response = requests.get(url, timeout=5)
-        except requests.exceptions.RequestException as e:
-            print e
-            # print 'write meta'
-            sys.exit(1)
-
-        if mail_response.status_code == 200:
-            # print mail_response.text
-            # writing files
-            filename_path = self.folder + msg_year_month + '-' + \
-                            str(self.counter) + self.file_ext
-
-            if self.write_file(filename_path,
-                               mail_response.text.encode('utf-8')):
-                self.counter += 1
+        return True
 
     def process_folder(self, folder):
         """
@@ -149,9 +208,24 @@ class Crawler():
         if not folder:
             folder = str(self.year)
 
+        self.meta_file_name = prefix_folder + folder + '/' + 'meta.txt'
+
         if os.path.exists(prefix_folder + folder):
-            print 'Folder exists try another folder_name'
-            sys.exit(0)
+            print 'resuming....'
+            self.folder = prefix_folder + folder + '/'
+            # getattr(obj, 'func')('foo', 'bar', 42)
+            data = self.read_meta_file(self.meta_file_name)
+
+            if data['status'] != 'completed':
+
+                self.counter = data['counter']
+                self.url_to_parse = data['url_to_parse']
+                getattr(self, data['resume_function'])(','.join(
+                    data['args'].values()))
+
+            else:
+                print 'completed'
+                sys.exit(0)
 
         else:
             os.makedirs(prefix_folder + folder)
@@ -171,13 +245,24 @@ class Crawler():
         print 'writing {}'.format(filename)
         return True
 
+    def read_meta_file(self, filename):
+        """
+
+        :param filename:
+        :return:
+        """
+
+        with open(filename) as data_file:
+            data = json.load(data_file)
+
+        return data
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="mini crawler project .")
     parser.add_argument('-y', '--year', type=int, required=True)
     parser.add_argument('-d', '--folder', type=str)
     args = parser.parse_args()
+    # print args
 
     maven_url = 'http://mail-archives.apache.org/mod_mbox/maven-users/'
     crawler = Crawler(maven_url, args.year, args.folder)
-
-    crawler.parse_main_page()

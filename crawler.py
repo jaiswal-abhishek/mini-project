@@ -7,6 +7,9 @@ import argparse
 import sys
 import os
 import json
+import logging
+import time
+import shelve
 
 
 class Crawler():
@@ -25,6 +28,30 @@ class Crawler():
         :return:
         """
 
+        # logger setting
+        logging.basicConfig(
+            filename='crawler.log',
+            level=logging.INFO,
+            format='[%(asctime)s] {%(pathname)s:%(lineno)d} %(levelname)s'
+                   '- %(message)s',
+            datefmt='%H:%M:%S'
+        )
+
+        # set up logging to console
+        console = logging.StreamHandler()
+        console.setLevel(logging.DEBUG)
+        # set a format which is simpler for console use
+        formatter = logging.Formatter('%(name)-12s: %(levelname)-8s '
+                                      '%(message)s')
+        console.setFormatter(formatter)
+        # add the handler to the root logger
+        logging.getLogger('crawler_app').addHandler(console)
+
+        self.logger = logging.getLogger('crawler_app')
+
+        # configuration / init
+
+        self.shelve_obj = None
         self.maven_url = main_url
         self.year = year
         self.file_ext = '.txt'
@@ -32,7 +59,7 @@ class Crawler():
         self.url_to_parse = list()
         self.list_year_month_url = list()
         self.folder = 'mailbox/'
-        self.meta_file_name = self.folder + 'meta.txt'
+        self.meta_file_name = self.folder + 'meta.shelve'
         self.process_folder(folder)
 
         list_url = self.parse_main_page()
@@ -44,23 +71,22 @@ class Crawler():
         :return: list containing month mail url's
         """
 
+        self.logger.info("Timestamp of start: " + time.strftime("%c"))
         try:
             response = requests.get(self.maven_url, timeout=5)
         except requests.exceptions.RequestException as e:
-            print e
+            self.logger.info(e)
 
             # writing meta file for resuming from last run
-            data = {
-                'resume_function': 'parse_main_page',
-                'maven_url': self.maven_url,
-                'counter': self.counter,
-                'status': 'incomplete',
-                'list_year_month_url': self.list_year_month_url,
-                'url_to_parse': self.url_to_parse,
 
-            }
+            self.shelve_obj['resume_function'] = 'parse_main_page'
+            self.shelve_obj['maven_url'] = self.maven_url
+            self.shelve_obj['counter'] = self.counter
+            self.shelve_obj['status'] = 'incomplete'
+            self.shelve_obj['list_year_month_url'] = self.list_year_month_url
+            self.shelve_obj['url_to_parse'] = self.url_to_parse
 
-            self.write_file(self.meta_file_name, json.dumps(data))
+            self.shelve_obj.close()
 
             sys.exit(0)
 
@@ -71,19 +97,20 @@ class Crawler():
         tables = soup.find('th', text=pattern)
 
         if not tables:
-            print 'given year "{}" not found'.format(self.year)
+            self.logger.info('given year "{}" not found'.format(self.year))
             sys.exit(0)
 
         else:
             for table in tables:
-                # print table.parent.parent.parent.parent
+                # self.logger.info(table.parent.parent.parent.parent)
                 table_by_year = table.findParents('table', {'class': 'year'})
                 list_year_month_url = list()
 
                 for a_tags in table_by_year[0].\
                         find_all('a', href=True, text='Thread'):
 
-                    # print "Found the URL:",self.maven_url + a_tags['href']
+                    # self.logger.info("Found the URL:",self.maven_url +
+                    #             a_tags['href'])
                     self.list_year_month_url.append(self.maven_url +
                                                     a_tags['href'])
 
@@ -106,23 +133,22 @@ class Crawler():
             msg_year_month = sliced_url[0][-11:-5]
 
             while bool_next:
-                # print year_month_url
+                self.logger.info(year_month_url)
                 try:
                     tag_response = requests.get(year_month_url, timeout=5)
                 except requests.exceptions.RequestException as e:
-                    print e
+                    self.logger.info(e)
 
                     # writing meta file for resuming from last run
-                    data = {
-                        'resume_function': 'parse_main_page',
-                        'maven_url': self.maven_url,
-                        'counter': self.counter,
-                        'status': 'incomplete',
-                        'list_year_month_url': self.list_year_month_url,
-                        'url_to_parse': self.url_to_parse,
-                    }
 
-                    self.write_file(self.meta_file_name, json.dumps(data))
+                    self.shelve_obj['resume_function'] = 'parse_year_month_link'
+                    self.shelve_obj['maven_url'] = self.maven_url
+                    self.shelve_obj['counter'] = self.counter
+                    self.shelve_obj['status'] = 'incomplete'
+                    self.shelve_obj['list_year_month_url'] = self.list_year_month_url
+                    self.shelve_obj['url_to_parse'] = self.url_to_parse
+
+                    self.shelve_obj.close()
 
                     sys.exit(0)
 
@@ -139,11 +165,11 @@ class Crawler():
                     # mail_date = table_row.find('td', {'class': 'date'})
 
                     if subject:
-                        # print raw_msg_url + subject['href'] + '/'
-                        self.url_to_parse.append({
-                            'msg_url': raw_msg_url + subject['href'] + '/',
-                            'msg_year_month': msg_year_month,
-                        })
+                        # self.logger.info(raw_msg_url + subject['href'] + '/')
+                        self.url_to_parse.append([
+                            raw_msg_url + subject['href'] + '/',
+                            msg_year_month,
+                        ])
 
                 th_pages = msg_list_table.find('th', {'class': 'pages'})
                 next_page = th_pages.find('a', href=True,
@@ -164,32 +190,31 @@ class Crawler():
 
         # for url, msg_year_month in list_raw_msg_url:
         while len(self.url_to_parse):
-            popped_dict = self.url_to_parse.pop()
-            url = popped_dict['msg_url']
-            msg_year_month = popped_dict['msg_year_month']
-            print url, msg_year_month
+            popped_list = self.url_to_parse.pop()
+            url = popped_list[0]
+            msg_year_month = popped_list[1]
+            self.logger.info(url + '--' + msg_year_month)
 
             try:
                 mail_response = requests.get(url, timeout=5)
             except requests.exceptions.RequestException as e:
-                print e
+                self.logger.info(e)
 
                 # writing meta file for resuming from last run
-                data = {
-                    'resume_function': 'parse_year_month_link',
-                    'maven_url': self.maven_url,
-                    'counter': self.counter,
-                    'status': 'incomplete',
-                    'list_year_month_url': self.list_year_month_url,
-                    'url_to_parse': self.url_to_parse,
-                }
 
-                self.write_file(self.meta_file_name, json.dumps(data))
+                self.shelve_obj['resume_function'] = 'parse_raw_msg'
+                self.shelve_obj['maven_url'] = self.maven_url
+                self.shelve_obj['counter'] = self.counter
+                self.shelve_obj['status'] = 'incomplete'
+                self.shelve_obj['list_year_month_url'] = self.list_year_month_url
+                self.shelve_obj['url_to_parse'] = self.url_to_parse
+
+                self.shelve_obj.close()
 
                 sys.exit(0)
 
             if mail_response.status_code == 200:
-                # print mail_response.text
+                # self.logger.info(mail_response.text)
                 # writing files
                 filename_path = self.folder + msg_year_month + '-' + \
                                 str(self.counter) + self.file_ext
@@ -198,15 +223,16 @@ class Crawler():
                                    mail_response.text.encode('utf-8')):
                     self.counter += 1
 
-        data = {'status': 'completed'}
-        self.write_file(self.meta_file_name, json.dumps(data))
+        self.shelve_obj['status'] = 'completed'
+
+        self.shelve_obj.close()
 
         return True
 
     def process_folder(self, folder):
         """
         :param folder:
-        :return:
+        :return: None
         """
 
         prefix_folder = 'mailbox/'
@@ -215,34 +241,32 @@ class Crawler():
             folder = str(self.year)
 
         self.meta_file_name = prefix_folder + folder + '/' + 'meta.txt'
+        self.folder = prefix_folder + folder + '/'
 
         if os.path.exists(prefix_folder + folder):
-            print 'resuming....'
-            self.folder = prefix_folder + folder + '/'
-            data = self.read_meta_file(self.meta_file_name)
 
-            if data['status'] != 'completed':
+            self.shelve_obj = shelve.open(self.meta_file_name)
 
-                self.counter = data['counter']
-                self.url_to_parse = data['url_to_parse']
-                self.list_year_month_url = data['list_year_month_url']
+            # checking last run state and loading values
+            if self.shelve_obj['status'] == 'incomplete':
 
-                if data['resume_function'] == 'parse_year_month_link':
+                self.logger.info('resuming....')
+                self.counter = self.shelve_obj['counter']
+                self.url_to_parse = self.shelve_obj['url_to_parse']
+                self.list_year_month_url = self.shelve_obj['list_year_month_url']
+
+                if self.shelve_obj['resume_function'] == 'parse_year_month_link':
                     self.parse_year_month_link()
 
-                elif data['resume_function'] == 'parse_raw_msg':
+                elif self.shelve_obj['resume_function'] == 'parse_main_page':
+                    self.parse_main_page()
+
+                elif self.shelve_obj['resume_function'] == 'parse_raw_msg':
                     self.parse_raw_msg()
-
-                else:
-                    print 'wrong meta file found'
-                    sys.exit(0)
-
-            else:
-                print 'completed'
-                sys.exit(0)
 
         else:
             os.makedirs(prefix_folder + folder)
+            self.shelve_obj = shelve.open(self.meta_file_name)
 
             self.folder = prefix_folder + folder + '/'
 
@@ -256,20 +280,8 @@ class Crawler():
         new_file = open(filename, 'w')   # creating a new file
         new_file.write(data)
         new_file.close()
-        print 'writing {}'.format(filename)
+        self.logger.info('writing {}'.format(filename))
         return True
-
-    def read_meta_file(self, filename):
-        """
-
-        :param filename:
-        :return:
-        """
-
-        with open(filename) as data_file:
-            data = json.load(data_file)
-
-        return data
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="mini crawler project .")
